@@ -10,7 +10,9 @@ import {
 	WebGLRenderer,
 	Frustum,
 	Camera,
-	Renderer
+	Renderer,
+	Color,
+	Vector3
 } from 'three';
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -54,6 +56,7 @@ class App {
 		scene = new Scene();
 		const geometry = new PlaneGeometry();
 		const material = new MeshBasicMaterial();
+		material.color = new Color("#114477");
 
 		// Base geometry
 		const mesh = new Mesh( geometry, material );
@@ -86,7 +89,43 @@ function update()
 	let frustum = new Frustum();
 	let cameraProjMat = camera.projectionMatrix;
 	frustum.setFromProjectionMatrix(cameraProjMat);
+	//controls.addEventListener("Change", () => Map.Update());
+}
 
+class Map
+{
+	tree : QuadTree;
+	activeNodeStack : Array<QuadTreeNode>;
+
+	constructor(){
+		this.tree = new QuadTree(new Vector2(0,0), new Vector2(0,0));
+		this.activeNodeStack = new Array<QuadTreeNode>();
+	}
+
+	Update(frustum:Frustum, scene:Scene){
+		let index = 0;
+		let node = this.tree.root;
+		while(true){
+			
+		}
+	}
+
+	// Helper to try to add to the stack at given index
+	// Checks current value at that index, and does nothing
+	// if it is the same as the proposed append. Otherwise,
+	// clears any existing values after index and appends
+	private AppendToStack(node:QuadTreeNode, index:number){
+		if (this.activeNodeStack.length - 1 >= index){
+				if (this.activeNodeStack[index] != node){
+				// Remove all nodes after this (stack is modified, returns ones that were removed)
+				let removedNodes = this.activeNodeStack.splice(index, this.activeNodeStack.length - 1 - index);
+				// todo, purge these nodes from scene
+			}
+		}
+		else {
+			this.activeNodeStack.push(node);
+		}
+	}
 }
 
 class QuadTree
@@ -113,6 +152,29 @@ class QuadTree
 	GetHalfSizeAtLevel(level:number){
 		return this.size.divideScalar(2^(level+2));
 	}
+
+	GetNodeList(frustum:Frustum){
+		let nodes = new Array<QuadTreeNode>();
+		let activeNode = this.root;
+		nodes.push(this.root);
+
+		while(true){
+			let childrenInFrustum = activeNode.GetChildrenInFrustum(frustum);
+			if (childrenInFrustum.length == 0){
+				break;
+			}
+			else if (childrenInFrustum.length > 1) {
+				nodes.push.apply(nodes, childrenInFrustum);
+				break;
+			}
+			else if (childrenInFrustum.length == 1){
+				nodes.push(childrenInFrustum[0]);
+				activeNode = childrenInFrustum[0];
+			}
+		}
+
+		return nodes;
+	}
 }
 
 class QuadTreeNode
@@ -132,7 +194,7 @@ class QuadTreeNode
 		this.children = new Array(4).fill(null);
 	}
 	
-	GetChild(index:number) {
+	GetChild(index:number) : QuadTreeNode {
 		if (!this.children[index]){
 			let childSize = this.context.GetSizeAtLevel(this.level+1);
 			let childPositionOffset = childSize;
@@ -157,7 +219,20 @@ class QuadTreeNode
 			this.children[index] = new QuadTreeNode(this.context, this.level + 1, childCenter);
 		}
 
-		return this.children[index];
+		return this.children[index] as QuadTreeNode;
+	}
+
+	GetChildrenInFrustum(frustum:Frustum){
+		let children = new Array<QuadTreeNode>();
+		for (let index = 0; index < 4; index++) {
+			let node = this.GetChild(index);
+
+			// TODO: The Vector2 vs Vector3 is a bit messy, should be refactored
+			if ( frustum.containsPoint(new Vector3(node.center.x, node.center.y, 0))){
+				children.push(node);
+			}
+		}
+		return children;
 	}
 }
 
@@ -170,6 +245,15 @@ class QuadTreeNode
 				-Recurse on children
 			-Else,
 				-Add children to render stack, then return
+
+	-Rational behind the stack
+		-On most camera movements, the path through the graph will be similar until the end
+			-We can avoid sections of rebuilding scene graph
+		-If we were actually loading images, keeping the lower LOD images rendering would be 
+		 helpful while the lower levels are being streamed in
+		-Immediately moving large distances will always have *something* on screen, even if 
+		 very low res
+			
 */
 
 export default App;
