@@ -12,12 +12,14 @@ import {
 	Camera,
 	Renderer,
 	Color,
-	Vector3
+	Vector3,
+	Raycaster
 } from 'three';
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-let camera:OrthographicCamera, scene:Scene, renderer:WebGLRenderer, controls:OrbitControls;
+// Should be moved to the app class
+let camera:OrthographicCamera, scene:Scene, renderer:WebGLRenderer, controls:OrbitControls, map:Map;
 
 class App {
 
@@ -27,7 +29,6 @@ class App {
 		renderer.setPixelRatio( window.devicePixelRatio );
 		renderer.setSize( window.innerWidth, window.innerHeight );
 		renderer.setClearColor("#233143");
-		renderer.setClearColor("#239943");
 		document.body.appendChild( renderer.domElement );
 		window.addEventListener( 'resize', onWindowResize, false );
 
@@ -52,16 +53,9 @@ class App {
 		controls.minAzimuthAngle = 0;//-Math.PI + allowedRotationAngle; // radians
 		controls.maxAzimuthAngle = 0;// Math.PI - allowedRotationAngle; // radians
 
-		// Base scene
 		scene = new Scene();
-		const geometry = new PlaneGeometry();
-		const material = new MeshBasicMaterial();
-		material.color = new Color("#114477");
 
-		// Base geometry
-		const mesh = new Mesh( geometry, material );
-		mesh.rotateX(Math.PI)
-		scene.add( mesh );
+		map = new Map(scene);
 
 		animate();
 	}
@@ -89,42 +83,77 @@ function update()
 	let frustum = new Frustum();
 	let cameraProjMat = camera.projectionMatrix;
 	frustum.setFromProjectionMatrix(cameraProjMat);
-	//controls.addEventListener("Change", () => Map.Update());
+
+	controls.addEventListener("Change", () => map.Update(camera));
 }
 
 class Map
 {
 	tree : QuadTree;
 	activeNodeStack : Array<QuadTreeNode>;
+	scene:Scene;
 
-	constructor(){
-		this.tree = new QuadTree(new Vector2(0,0), new Vector2(0,0));
+
+	constructor(scene:Scene){
+		this.tree = new QuadTree(new Vector2(0,0), new Vector2(1,1));
 		this.activeNodeStack = new Array<QuadTreeNode>();
+		this.scene = scene;
+		this.tree.root.SetToRender(true, this.scene);
 	}
 
-	Update(frustum:Frustum, scene:Scene){
+	Update(camera:Camera){
+		var bounds = this.GetCameraBoundsOnMap(camera);
+
+		// if bounds is null, it is implied that the map is not on screen
+		if (!bounds){
+			console.log("Camera seems to not intersect with map at all, skipping");
+			return;
+		}
+
 		// Get all nodes that must be rendered with given frustum
-		let requiredNodes = this.tree.GetNodeList(frustum);
+		let requiredNodes = this.tree.GetNodeList(bounds);
+
+		let expiredNodes = this.activeNodeStack.filter(x => !requiredNodes.includes(x));
+		
+		expiredNodes.forEach(node => {
+			node.SetToRender(false, this.scene);
+		});
 
 		requiredNodes.forEach(node => {
+			node.SetToRender(false, this.scene);
 		});
-		for (let index = 0; index < requiredNodes.length; index++) {
-			const node = requiredNodes[index];
 
-			// If 
-			if (this.activeNodeStack.length - 1 >= index){
+		this.activeNodeStack = requiredNodes;
+	}
 
-				// If 
-				if (this.activeNodeStack[index] != node){
-					// Remove all nodes after this (stack is modified, returns ones that were removed)
-					let removedNodes = this.activeNodeStack.splice(index, this.activeNodeStack.length - 1 - index);
-					// todo, purge these nodes from scene
-				}
-			}
-			else {
-				this.activeNodeStack.push(node);
-			}
+	private GetCameraBoundsOnMap(camera:Camera){
+		const raycaster = new Raycaster();
+
+		raycaster.setFromCamera(new Vector2(-1,-1), camera);
+		const minHits = raycaster.intersectObject(this.tree.root.mesh as Mesh);
+		raycaster.setFromCamera(new Vector2(1,1), camera);
+		const maxHits = raycaster.intersectObject(this.tree.root.mesh as Mesh);
+
+
+		if (minHits.length != 1 && maxHits.length != 1){
+			return null;
 		}
+
+		if (minHits.length == 1){
+			var min = new Vector2(minHits[0].point.x, minHits[0].point.y);
+		}
+		else{
+			var min = this.tree.position.sub(this.tree.size.divideScalar(2));
+		}
+
+		if (maxHits.length == 1){
+			var max = new Vector2(maxHits[0].point.x, maxHits[0].point.y);
+		}
+		else{
+			var max = this.tree.position.add(this.tree.size.divideScalar(2));
+		}
+
+		return new rect(min, max);
 	}
 }
 
@@ -139,6 +168,7 @@ class QuadTree
 	colorA : Color;
 	colorB : Color;
 	maxSubdivisions : number;
+	minRatioToSubdivide : number;
 
 	constructor(position : Vector2, size : Vector2){
 		this.position = position;
@@ -148,6 +178,7 @@ class QuadTree
 		this.colorA = new Color("#1f4260");
 		this.colorB = new Color("#f3ff82");
 		this.maxSubdivisions = 10;
+		this.minRatioToSubdivide = .25;
 	}
 
 	GetSizeAtLevel(level:number){
@@ -162,25 +193,11 @@ class QuadTree
 		return this.colorA.lerp(this.colorB, level / this.maxSubdivisions);
 	}
 
-	GetNodeList(frustum:Frustum){
+	GetNodeList(bounds:rect){
+		
 		let nodes = new Array<QuadTreeNode>();
-		let activeNode = this.root;
-		nodes.push(this.root);
 
-		while(true){
-			let childrenInFrustum = activeNode.GetChildrenInFrustum(frustum);
-			if (childrenInFrustum.length == 0){
-				break;
-			}
-			else if (childrenInFrustum.length > 1) {
-				nodes.push.apply(nodes, childrenInFrustum);
-				break;
-			}
-			else if (childrenInFrustum.length == 1){
-				nodes.push(childrenInFrustum[0]);
-				activeNode = childrenInFrustum[0];
-			}
-		}
+		this.root.GetChildrenInRectRecursive(bounds, nodes);
 
 		return nodes;
 	}
@@ -191,6 +208,7 @@ class QuadTreeNode
 	context : QuadTree;
 	level : number;
 	center : Vector2;
+	bounds : rect;
 	active : boolean;
 	parent : QuadTreeNode | null;
 	children : Array<QuadTreeNode | null>;
@@ -204,8 +222,12 @@ class QuadTreeNode
 		this.level = level;
 		this.center = center;
 		this.active = false;
-		this.children = new Array(4).fill(null);
 		this.mesh = null;
+
+		let halfSize = center.add(this.context.GetSizeAtLevel(level).divideScalar(2));
+
+		this.bounds = new rect(center.sub(halfSize), center.add(halfSize));
+		this.children = new Array(4).fill(null);
 	}
 	
 	GetChild(index:number) : QuadTreeNode {
@@ -236,17 +258,24 @@ class QuadTreeNode
 		return this.children[index] as QuadTreeNode;
 	}
 
-	GetChildrenInFrustum(frustum:Frustum){
-		let children = new Array<QuadTreeNode>();
+	GetChildrenInRectRecursive(bounds:rect, nodeOutput:Array<QuadTreeNode>){
+		if (this.bounds.area() / bounds.area() < this.context.minRatioToSubdivide){
+			return;
+		}
+
+		nodeOutput.push(this);
+		
+		if (this.level >= this.context.maxSubdivisions){
+			return;
+		}
+
 		for (let index = 0; index < 4; index++) {
 			let node = this.GetChild(index);
 
-			// TODO: The Vector2 vs Vector3 is a bit messy, should be refactored
-			if ( frustum.containsPoint(new Vector3(node.center.x, node.center.y, 0))){
-				children.push(node);
+			if (bounds.intersects(node.bounds)){
+				node.GetChildrenInRectRecursive(bounds, nodeOutput);
 			}
 		}
-		return children;
 	}
 
 	SetToRender(render:boolean, scene : Scene){
@@ -280,6 +309,42 @@ class QuadTreeNode
 	}
 }
 
+class rect{
+	min : Vector2;
+	max : Vector2;
+
+	constructor(min:Vector2, max:Vector2){
+		this.min = min;
+		this.max = max;
+	}
+	/*constructor(center:Vector2, size:Vector2){
+		let halfSize = size.divideScalar(2);
+		this.min = center.sub(halfSize);
+		this.max = center.add(halfSize);
+	}*/
+
+	intersects(other:rect){
+		// Adapted from https://www.geeksforgeeks.org/find-two-rectangles-overlap/
+		let l1 = this.min;
+		let r1 = this.max;
+		let l2 = other.min;
+		let r2 = other.max;
+
+		if (l1.x > r2.x || l2.x > r1.x)
+			return false;
+ 
+		if (r1.y > l2.y || r2.y > l1.y)
+			return false;
+ 
+		return true;
+	}
+
+	area(){
+		let size = this.max.sub(this.min);
+		return size.x + size.y
+	}
+}
+
 
 /* Proposed rules:
 	-Start at top level
@@ -298,6 +363,20 @@ class QuadTreeNode
 		-Immediately moving large distances will always have *something* on screen, even if 
 		 very low res
 			
+
+	-Observations
+		-This is wrong
+		-Camera containing the center of a node does not mean parent's center will
+		-oof
+
+	-Second proposal
+		-Project frustum onto plane
+		-Get rect representing projection (would not be true for projection camera, would need improved)
+		-Include all nodes whose bounds intersect with input rect
+			-Put limiter on what levels to load (cant have camera observing full map try to load every L10)
+				-Use (cameraBoundsArea / nodeArea) to determine if should load
+					-Rough metric, try .25 for now
+		-No longer makes sense to use a stack, as the nodes will diverge much easier
 */
 
 export default App;
