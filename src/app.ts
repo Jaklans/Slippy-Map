@@ -9,12 +9,13 @@ import {
 	Vector2,
 	WebGLRenderer,
 	Frustum,
-	Camera
+	Camera,
+	Renderer
 } from 'three';
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-let camera, scene, renderer, controls;
+let camera:OrthographicCamera, scene:Scene, renderer:WebGLRenderer, controls:OrbitControls;
 
 class App {
 
@@ -24,6 +25,7 @@ class App {
 		renderer.setPixelRatio( window.devicePixelRatio );
 		renderer.setSize( window.innerWidth, window.innerHeight );
 		renderer.setClearColor("#233143");
+		renderer.setClearColor("#239943");
 		document.body.appendChild( renderer.domElement );
 		window.addEventListener( 'resize', onWindowResize, false );
 
@@ -64,7 +66,7 @@ class App {
 
 function onWindowResize() {
 
-	camera.aspect = window.innerWidth / window.innerHeight;
+	//camera.aspect = window.innerWidth / window.innerHeight;
 	camera.updateProjectionMatrix();
 
 	renderer.setSize( window.innerWidth, window.innerHeight );
@@ -94,7 +96,7 @@ class QuadTree
 	// Width and height of the tree at top level
 	// Changing this would require rebuilding the tree
 	size : Vector2;
-	get halfSize() { return this.size.divide(2); }
+	get halfSize() { return this.size.divideScalar(2); }
 	root : QuadTreeNode;
 
 	constructor(position : Vector2, size : Vector2){
@@ -105,11 +107,11 @@ class QuadTree
 	}
 
 	GetSizeAtLevel(level:number){
-		return this.size.divide(2^(level+1));
+		return this.size.divideScalar(2^(level+1));
 	}
 
 	GetHalfSizeAtLevel(level:number){
-		return this.size.divide(2^(level+2));
+		return this.size.divideScalar(2^(level+2));
 	}
 }
 
@@ -171,3 +173,6 @@ class QuadTreeNode
 */
 
 export default App;
+
+const app = new App();
+app.init();
