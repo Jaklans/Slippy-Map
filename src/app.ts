@@ -103,27 +103,27 @@ class Map
 	}
 
 	Update(frustum:Frustum, scene:Scene){
-		let index = 0;
-		let node = this.tree.root;
-		while(true){
-			
-		}
-	}
+		// Get all nodes that must be rendered with given frustum
+		let requiredNodes = this.tree.GetNodeList(frustum);
 
-	// Helper to try to add to the stack at given index
-	// Checks current value at that index, and does nothing
-	// if it is the same as the proposed append. Otherwise,
-	// clears any existing values after index and appends
-	private AppendToStack(node:QuadTreeNode, index:number){
-		if (this.activeNodeStack.length - 1 >= index){
+		requiredNodes.forEach(node => {
+		});
+		for (let index = 0; index < requiredNodes.length; index++) {
+			const node = requiredNodes[index];
+
+			// If 
+			if (this.activeNodeStack.length - 1 >= index){
+
+				// If 
 				if (this.activeNodeStack[index] != node){
-				// Remove all nodes after this (stack is modified, returns ones that were removed)
-				let removedNodes = this.activeNodeStack.splice(index, this.activeNodeStack.length - 1 - index);
-				// todo, purge these nodes from scene
+					// Remove all nodes after this (stack is modified, returns ones that were removed)
+					let removedNodes = this.activeNodeStack.splice(index, this.activeNodeStack.length - 1 - index);
+					// todo, purge these nodes from scene
+				}
 			}
-		}
-		else {
-			this.activeNodeStack.push(node);
+			else {
+				this.activeNodeStack.push(node);
+			}
 		}
 	}
 }
@@ -135,14 +135,19 @@ class QuadTree
 	// Width and height of the tree at top level
 	// Changing this would require rebuilding the tree
 	size : Vector2;
-	get halfSize() { return this.size.divideScalar(2); }
 	root : QuadTreeNode;
+	colorA : Color;
+	colorB : Color;
+	maxSubdivisions : number;
 
 	constructor(position : Vector2, size : Vector2){
 		this.position = position;
 		this.size = size;
+		this.root = new QuadTreeNode(this, null, 0, position);
 
-		this.root = new QuadTreeNode(this, 0, position);
+		this.colorA = new Color("#1f4260");
+		this.colorB = new Color("#f3ff82");
+		this.maxSubdivisions = 10;
 	}
 
 	GetSizeAtLevel(level:number){
@@ -151,6 +156,10 @@ class QuadTree
 
 	GetHalfSizeAtLevel(level:number){
 		return this.size.divideScalar(2^(level+2));
+	}
+
+	GetColorAtLevel(level:number){
+		return this.colorA.lerp(this.colorB, level / this.maxSubdivisions);
 	}
 
 	GetNodeList(frustum:Frustum){
@@ -183,15 +192,20 @@ class QuadTreeNode
 	level : number;
 	center : Vector2;
 	active : boolean;
+	parent : QuadTreeNode | null;
 	children : Array<QuadTreeNode | null>;
 
-	constructor(context:QuadTree, level:number, center:Vector2){
+	// Rendering / SceneGraph
+	mesh : Mesh | null;
+
+	constructor(context:QuadTree, parent : QuadTreeNode | null, level:number, center:Vector2){
 		this.context = context;
+		this.parent = parent;
 		this.level = level;
 		this.center = center;
 		this.active = false;
-
 		this.children = new Array(4).fill(null);
+		this.mesh = null;
 	}
 	
 	GetChild(index:number) : QuadTreeNode {
@@ -216,7 +230,7 @@ class QuadTreeNode
 			// center + (offset * direction)
 			let childCenter = this.center.add(childPositionOffset.multiply(direction));
 
-			this.children[index] = new QuadTreeNode(this.context, this.level + 1, childCenter);
+			this.children[index] = new QuadTreeNode(this.context, this, this.level + 1, childCenter);
 		}
 
 		return this.children[index] as QuadTreeNode;
@@ -233,6 +247,36 @@ class QuadTreeNode
 			}
 		}
 		return children;
+	}
+
+	SetToRender(render:boolean, scene : Scene){
+		if (!this.mesh){
+			if (render){
+				const size = this.context.GetSizeAtLevel(this.level);
+				const geometry = new PlaneGeometry(size.x, size.y);
+				const material = new MeshBasicMaterial();
+				material.color = this.context.GetColorAtLevel(this.level);
+				this.mesh = new Mesh(geometry, material);
+				this.mesh.parent = this.parent ? this.parent.mesh : null;
+				this.mesh.position.set(this.center.x, this.center.y, 0);
+
+				// Done to demonstrate that only required nodes are considered for rendering
+				this.mesh.frustumCulled = false;
+
+				// TODO: Add text displaying level and which index this is
+			}
+		}
+
+		if (render != this.active){
+			if (render){
+				scene.add(this.mesh as Mesh);
+				this.active = true;
+			}
+			else{
+				scene.remove(this.mesh as Mesh);
+				this.active = false;
+			}
+		}
 	}
 }
 
