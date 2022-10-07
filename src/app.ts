@@ -56,6 +56,15 @@ class App {
 
 		//controls.addEventListener("change", () => map.Update(camera));
 		map.Update(camera);
+
+		document.addEventListener("keydown", (event) => {
+			console.log("key event", event);
+			if (event.key == "r"){
+				console.log("manually updating map");
+				map.Update(camera)
+			}
+		} );
+
 		console.log("finished init");
 		animate();
 	}
@@ -195,7 +204,7 @@ class QuadTree
 
 		this.colorA = new Color("#1f4260");
 		this.colorB = new Color("#f3ff82");
-		this.maxSubdivisions = 1;
+		this.maxSubdivisions = 2;
 		this.minRatioToSubdivide = .25;
 
 		scene.add(this.rootObject);
@@ -269,6 +278,17 @@ class QuadTreeNode
 		console.log(this.cornerA);
 		console.log(this.cornerB);
 	}
+
+	GetAddress(){
+		let indexPath = new Array<string>();
+		let p = this as QuadTreeNode | null;
+		while(p != null){
+			indexPath.push(p.level + ":" + p.index);
+			p = p.parent;
+		}
+
+		return indexPath.reverse().join(", ");
+	}
 	
 	GetChild(index:number) : QuadTreeNode {
 		if (!this.children[index]){
@@ -308,8 +328,8 @@ class QuadTreeNode
 
 	GetChildrenInRectRecursive(frustum:Frustum, nodeOutput:Array<QuadTreeNode>){
 		
-		console.log("left", frustum.planes[0]);
-		console.log("right", frustum.planes[1]);
+		//console.log("left", frustum.planes[0]);
+		//console.log("right", frustum.planes[1]);
 
 		// Planes are, in order, {left, right, top, bottom, near, far}
 		let distanceToLeft1 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.max));
@@ -317,9 +337,9 @@ class QuadTreeNode
 		let distanceToRight1 = frustum.planes[1].distanceToPoint(this.AsVec3(this.bounds.max));
 
 
-		console.log("dl1:",distanceToLeft1);
-		console.log("dl2:",distanceToLeft2);
-		console.log("dr1:",distanceToRight1);
+		//console.log("dl1:",distanceToLeft1);
+		//console.log("dl2:",distanceToLeft2);
+		//console.log("dr1:",distanceToRight1);
 
 		// Checks to make sure that some of the rect is in the frustum
 		if (distanceToLeft2 > 0 || distanceToRight1 > 0) {
@@ -333,12 +353,14 @@ class QuadTreeNode
 
 		let frustumWidth = distanceToLeft1 + distanceToRight1;
 
-		console.log("frustumWidth:",frustumWidth);
-		console.log("tileWidth:",frustumWidth - distanceToLeft2 - distanceToRight1);
+		//console.log("frustumWidth:",frustumWidth);
+		//console.log("tileWidth:",frustumWidth - distanceToLeft2 - distanceToRight1);
 
 		let horizontalRatio = (frustumWidth - distanceToLeft2 - distanceToRight1) / frustumWidth;
+		
+		//console.log("Ratio @ L"+this.level+":", horizontalRatio);
 
-		console.log("Ratio @ L"+this.level+":", horizontalRatio);
+		console.log(this.GetAddress() + " Ratio: " + horizontalRatio);
 
 		if (horizontalRatio < this.context.minRatioToSubdivide){
 			return;
