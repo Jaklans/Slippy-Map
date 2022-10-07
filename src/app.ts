@@ -13,13 +13,18 @@ import {
 	Renderer,
 	Color,
 	Vector3,
-	Raycaster
+	Raycaster,
+	Line,
+	Line3,
+	Plane
 } from 'three';
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 // Should be moved to the app class
-let camera:OrthographicCamera, scene:Scene, renderer:WebGLRenderer, controls:OrbitControls, map:Map;
+let camera:PerspectiveCamera, scene:Scene, renderer:WebGLRenderer, controls:OrbitControls, map:Map;
+
+let plane : Mesh;
 
 class App {
 
@@ -33,27 +38,28 @@ class App {
 		window.addEventListener( 'resize', onWindowResize, false );
 
 		// Camera
-		//camera = new PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 10 );
-		camera = new OrthographicCamera(-1,1,-1,1,.1,10);
+		camera = new PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 10 );
+		//camera = new OrthographicCamera(-1,1,-1,1,.1,10);
 		camera.position.z = 4;
+
 		controls = new OrbitControls( camera, renderer.domElement );
-		// Slightly less than 180 deg viewing angle
-		controls.maxAzimuthAngle = 1;
-		controls.maxPolarAngle = 1;
-		controls.enableRotate = false;
+		controls.minPolarAngle = Math.PI / 4;
+		controls.maxPolarAngle = Math.PI * 3 / 4;
 
-		let allowedRotationAngle = Math.PI / 6;
-		// How far you can orbit vertically, upper and lower limits.
-		// Range is 0 to Math.PI radians.
-		controls.minPolarAngle = allowedRotationAngle; // radians
-		controls.maxPolarAngle = Math.PI - allowedRotationAngle; // radians
+		controls.minAzimuthAngle = -.1 * Math.PI;
+		controls.maxAzimuthAngle =  .1 * Math.PI;
 
-		// How far you can orbit horizontally, upper and lower limits.
-		// If set, must be a sub-interval of the interval [ - Math.PI, Math.PI ].
-		controls.minAzimuthAngle = 0;//-Math.PI + allowedRotationAngle; // radians
-		controls.maxAzimuthAngle = 0;// Math.PI - allowedRotationAngle; // radians
 
 		scene = new Scene();
+
+		const geometry = new BoxGeometry();
+		const material = new MeshBasicMaterial();
+		material.color = new Color("#114477");
+
+		// Base geometry
+		const mesh = new Mesh( geometry, material );
+		mesh.rotateX(Math.PI)
+		scene.add( mesh );
 
 		map = new Map(scene);
 
@@ -65,8 +71,8 @@ class App {
 
 function onWindowResize() {
 
-	//camera.aspect = window.innerWidth / window.innerHeight;
-	camera.updateProjectionMatrix();
+	camera.aspect = window.innerWidth / window.innerHeight;
+	//camera.updateProjectionMatrix();
 
 	renderer.setSize( window.innerWidth, window.innerHeight );
 }
@@ -98,6 +104,8 @@ class Map
 	}
 
 	Update(camera:Camera){
+		//console.log(controls.getAzimuthalAngle() / Math.PI);
+
 		let frustum = new Frustum().setFromProjectionMatrix(camera.projectionMatrix);
 
 		// Get all nodes that must be rendered with given frustum
@@ -263,7 +271,7 @@ class QuadTreeNode
 	
 
 	GetChildrenInRectRecursive(frustum:Frustum, nodeOutput:Array<QuadTreeNode>){
-		return;
+		
 		// Planes are, in order, {left, right, top, bottom, near, far}
 		let distanceToLeft1 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.max));
 		let distanceToLeft2 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.min));
