@@ -57,6 +57,8 @@ class App {
 
 		map = new Map(scene);
 
+		controls.addEventListener("change", () => map.Update(camera));
+
 		animate();
 	}
 }
@@ -70,7 +72,6 @@ function onWindowResize() {
 }
 
 function animate() {
-
 	requestAnimationFrame( animate );
 
 	update();
@@ -80,11 +81,6 @@ function animate() {
 
 function update()
 {
-	let frustum = new Frustum();
-	let cameraProjMat = camera.projectionMatrix;
-	frustum.setFromProjectionMatrix(cameraProjMat);
-
-	controls.addEventListener("Change", () => map.Update(camera));
 }
 
 class Map
@@ -95,23 +91,17 @@ class Map
 
 
 	constructor(scene:Scene){
-		this.tree = new QuadTree(new Vector2(0,0), new Vector2(1,1));
+		this.tree = new QuadTree(new Vector2(0,0), new Vector2(10,10));
 		this.activeNodeStack = new Array<QuadTreeNode>();
 		this.scene = scene;
 		this.tree.root.SetToRender(true, this.scene);
 	}
 
 	Update(camera:Camera){
-		var bounds = this.GetCameraBoundsOnMap(camera);
-
-		// if bounds is null, it is implied that the map is not on screen
-		if (!bounds){
-			console.log("Camera seems to not intersect with map at all, skipping");
-			return;
-		}
+		let frustum = new Frustum().setFromProjectionMatrix(camera.projectionMatrix);
 
 		// Get all nodes that must be rendered with given frustum
-		let requiredNodes = this.tree.GetNodeList(bounds);
+		let requiredNodes = this.tree.GetNodeList(frustum);
 
 		let expiredNodes = this.activeNodeStack.filter(x => !requiredNodes.includes(x));
 		
@@ -126,7 +116,14 @@ class Map
 		this.activeNodeStack = requiredNodes;
 	}
 
+	/* I considered refactoring this to calculate the frustum edges and find the 
+	   intersection of those and the plane, but switched to generalized 3d frustum
+	   checking. It was better prepared to handle changing requirements, and much 
+	   easier/less janky to impliment
+
 	private GetCameraBoundsOnMap(camera:Camera){
+		let frustum = new Frustum().setFromProjectionMatrix(camera.projectionMatrix);
+
 		const raycaster = new Raycaster();
 
 		raycaster.setFromCamera(new Vector2(-1,-1), camera);
@@ -143,6 +140,7 @@ class Map
 			var min = new Vector2(minHits[0].point.x, minHits[0].point.y);
 		}
 		else{
+			console.log()
 			var min = this.tree.position.sub(this.tree.size.divideScalar(2));
 		}
 
@@ -153,8 +151,12 @@ class Map
 			var max = this.tree.position.add(this.tree.size.divideScalar(2));
 		}
 
+		console.log(min);
+
+		console.log(max);
+
 		return new rect(min, max);
-	}
+	}*/
 }
 
 class QuadTree
@@ -193,11 +195,11 @@ class QuadTree
 		return this.colorA.lerp(this.colorB, level / this.maxSubdivisions);
 	}
 
-	GetNodeList(bounds:rect){
+	GetNodeList(frustum:Frustum){
 		
 		let nodes = new Array<QuadTreeNode>();
 
-		this.root.GetChildrenInRectRecursive(bounds, nodes);
+		this.root.GetChildrenInRectRecursive(frustum, nodes);
 
 		return nodes;
 	}
@@ -257,9 +259,31 @@ class QuadTreeNode
 
 		return this.children[index] as QuadTreeNode;
 	}
+	
+	
 
-	GetChildrenInRectRecursive(bounds:rect, nodeOutput:Array<QuadTreeNode>){
-		if (this.bounds.area() / bounds.area() < this.context.minRatioToSubdivide){
+	GetChildrenInRectRecursive(frustum:Frustum, nodeOutput:Array<QuadTreeNode>){
+		return;
+		// Planes are, in order, {left, right, top, bottom, near, far}
+		let distanceToLeft1 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.max));
+		let distanceToLeft2 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.min));
+		let distanceToRight1 = frustum.planes[1].distanceToPoint(this.AsVec3(this.bounds.max));
+
+		// Checks to make sure that some of the rect is in the frustum
+		if (distanceToLeft2 > 0 || distanceToRight1 > 0) {
+			return;
+		}
+
+		// TODO: this may lead to unexpected behavior for tiles that border the frustum
+		distanceToLeft1 = Math.abs(distanceToLeft1);
+		distanceToLeft2 = Math.abs(distanceToLeft1);
+		distanceToRight1 = Math.abs(distanceToLeft1);
+
+		let frustumWidth = distanceToLeft1 + distanceToRight1;
+
+		let horizontalRatio = (frustumWidth - distanceToLeft2 - distanceToRight1) / frustumWidth;
+
+		if (horizontalRatio < this.context.minRatioToSubdivide){
 			return;
 		}
 
@@ -272,9 +296,7 @@ class QuadTreeNode
 		for (let index = 0; index < 4; index++) {
 			let node = this.GetChild(index);
 
-			if (bounds.intersects(node.bounds)){
-				node.GetChildrenInRectRecursive(bounds, nodeOutput);
-			}
+			node.GetChildrenInRectRecursive(frustum, nodeOutput);
 		}
 	}
 
@@ -307,6 +329,11 @@ class QuadTreeNode
 			}
 		}
 	}
+
+
+	// Helper funtion for our specific context of an unmoving map at the origin. 
+	// Should definately consider generalizing and doing all work with Vec3's 
+	AsVec3(vec : Vector2) { return new Vector3(vec.x, vec.y, 0)}
 }
 
 class rect{
@@ -349,7 +376,7 @@ class rect{
 /* Proposed rules:
 	-Start at top level
 		-Add to render stack
-		-Check if exactly one of children's center is in frustrum
+		-Check if exactly one of children's center is in frustum
 			-If true,
 				-Recurse on children
 			-Else,
@@ -376,6 +403,8 @@ class rect{
 			-Put limiter on what levels to load (cant have camera observing full map try to load every L10)
 				-Use (cameraBoundsArea / nodeArea) to determine if should load
 					-Rough metric, try .25 for now
+					-Prompt suggests using more data, like how far away the zone is from the camera 
+						-magnitude of camerapos - center of tile would be a good huristic for further subdivision
 		-No longer makes sense to use a stack, as the nodes will diverge much easier
 */
 
