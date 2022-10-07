@@ -106,17 +106,8 @@ class Map
 	}
 
 	Update(camera:Camera){
-		//console.log(controls.getAzimuthalAngle() / Math.PI);
-
-		let frustum = new Frustum().setFromProjectionMatrix(camera.projectionMatrix);
-
-		this.CalculateFrustumPlane(frustum.planes[0], camera.position)
-		this.CalculateFrustumPlane(frustum.planes[1], camera.position)
-
-		console.log(frustum);
-
-		// Get all nodes that must be rendered with given frustum
-		let requiredNodes = this.tree.GetNodeList(frustum);
+		// Get all nodes that must be rendered with given camera
+		let requiredNodes = this.tree.GetNodeList(camera);
 
 		let expiredNodes = this.activeNodeStack.filter(x => !requiredNodes.includes(x));
 		
@@ -245,10 +236,10 @@ class QuadTree
 		return color;
 	}
 
-	GetNodeList(frustum:Frustum){
+	GetNodeList(camera:Camera){
 		this.nodes = new Array<QuadTreeNode>();
 		
-		this.root.GetChildrenInRectRecursive(frustum, this.nodes);
+		this.root.GetChildrenInRectRecursive(camera, this.nodes);
 
 		return this.nodes;
 	}
@@ -260,7 +251,6 @@ class QuadTreeNode
 	level : number;
 	index : number;
 	center : Vector2;
-	bounds : rect;
 	cornerA : Vector3;
 	cornerB : Vector3;
 	active : boolean;
@@ -279,11 +269,10 @@ class QuadTreeNode
 		this.active = false;
 		this.mesh = null;
 
-		let halfSize = this.context.GetHalfSizeAtLevel(level);
+		let halfSize = this.AsVec3(this.context.GetHalfSizeAtLevel(level));
 
-		this.bounds = new rect(center.clone().sub(halfSize), center.clone().add(halfSize));
-		this.cornerA = this.AsVec3(this.bounds.min);
-		this.cornerB = this.AsVec3(this.bounds.max);
+		this.cornerA = this.AsVec3(center).sub(halfSize);
+		this.cornerB = this.AsVec3(center).add(halfSize);
 
 		this.children = new Array(4).fill(null);
 
@@ -337,43 +326,16 @@ class QuadTreeNode
 	
 	
 
-	GetChildrenInRectRecursive(frustum:Frustum, nodeOutput:Array<QuadTreeNode>){
+	GetChildrenInRectRecursive(camera:Camera, nodeOutput:Array<QuadTreeNode>){
 		
-		//console.log("left", frustum.planes[0]);
-		//console.log("right", frustum.planes[1]);
+		let screenSpaceA = this.cornerA.clone().project(camera);
+		let screenSpaceB = this.cornerB.clone().project(camera);
 
-		// Planes are, in order, {left, right, top, bottom, near, far}
-		let distanceToLeft1 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.max));
-		let distanceToLeft2 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.min));
-		let distanceToRight1 = frustum.planes[1].distanceToPoint(this.AsVec3(this.bounds.max));
+		let area = screenSpaceA.sub(screenSpaceB).length();
 
+		console.log(this.GetAddress() + " Area: " + area);
 
-		//console.log("dl1:",distanceToLeft1);
-		//console.log("dl2:",distanceToLeft2);
-		//console.log("dr1:",distanceToRight1);
-
-		// Checks to make sure that some of the rect is in the frustum
-		if (distanceToLeft2 > 0 || distanceToRight1 > 0) {
-			//return;
-		}
-
-		// TODO: this may lead to unexpected behavior for tiles that border the frustum
-		distanceToLeft1 = Math.abs(distanceToLeft1);
-		distanceToLeft2 = Math.abs(distanceToLeft2);
-		distanceToRight1 = Math.abs(distanceToRight1);
-
-		let frustumWidth = distanceToLeft1 + distanceToRight1;
-
-		//console.log("frustumWidth:",frustumWidth);
-		//console.log("tileWidth:",frustumWidth - distanceToLeft2 - distanceToRight1);
-
-		let horizontalRatio = (frustumWidth - distanceToLeft2 - distanceToRight1) / frustumWidth;
-		
-		//console.log("Ratio @ L"+this.level+":", horizontalRatio);
-
-		console.log(this.GetAddress() + " Ratio: " + horizontalRatio);
-
-		if (horizontalRatio < this.context.minRatioToSubdivide){
+		if (area < this.context.minRatioToSubdivide){
 			return;
 		}
 
@@ -386,7 +348,7 @@ class QuadTreeNode
 		for (let index = 0; index < 4; index++) {
 			let node = this.GetChild(index);
 
-			node.GetChildrenInRectRecursive(frustum, nodeOutput);
+			node.GetChildrenInRectRecursive(camera, nodeOutput);
 		}
 	}
 
@@ -456,78 +418,6 @@ class QuadTreeNode
 	// Should definately consider generalizing and doing all work with Vec3's 
 	AsVec3(vec : Vector2) { return new Vector3(vec.x, vec.y, 0)}
 }
-
-class rect{
-	min : Vector2;
-	max : Vector2;
-
-	constructor(min:Vector2, max:Vector2){
-		this.min = min;
-		this.max = max;
-	}
-	/*constructor(center:Vector2, size:Vector2){
-		let halfSize = size.divideScalar(2);
-		this.min = center.sub(halfSize);
-		this.max = center.add(halfSize);
-	}*/
-
-	intersects(other:rect){
-		// Adapted from https://www.geeksforgeeks.org/find-two-rectangles-overlap/
-		let l1 = this.min;
-		let r1 = this.max;
-		let l2 = other.min;
-		let r2 = other.max;
-
-		if (l1.x > r2.x || l2.x > r1.x)
-			return false;
- 
-		if (r1.y > l2.y || r2.y > l1.y)
-			return false;
- 
-		return true;
-	}
-
-	area(){
-		let size = this.max.sub(this.min);
-		return size.x + size.y
-	}
-}
-
-
-/* Proposed rules:
-	-Start at top level
-		-Add to render stack
-		-Check if exactly one of children's center is in frustum
-			-If true,
-				-Recurse on children
-			-Else,
-				-Add children to render stack, then return
-
-	-Rational behind the stack
-		-On most camera movements, the path through the graph will be similar until the end
-			-We can avoid sections of rebuilding scene graph
-		-If we were actually loading images, keeping the lower LOD images rendering would be 
-		 helpful while the lower levels are being streamed in
-		-Immediately moving large distances will always have *something* on screen, even if 
-		 very low res
-			
-
-	-Observations
-		-This is wrong
-		-Camera containing the center of a node does not mean parent's center will
-		-oof
-
-	-Second proposal
-		-Project frustum onto plane
-		-Get rect representing projection (would not be true for projection camera, would need improved)
-		-Include all nodes whose bounds intersect with input rect
-			-Put limiter on what levels to load (cant have camera observing full map try to load every L10)
-				-Use (cameraBoundsArea / nodeArea) to determine if should load
-					-Rough metric, try .25 for now
-					-Prompt suggests using more data, like how far away the zone is from the camera 
-						-magnitude of camerapos - center of tile would be a good huristic for further subdivision
-		-No longer makes sense to use a stack, as the nodes will diverge much easier
-*/
 
 export default App;
 
