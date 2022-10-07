@@ -54,7 +54,8 @@ class App {
 
 		map = new Map(scene);
 
-		//controls.addEventListener("change", () => map.Update(camera));
+		controls.addEventListener("change", () => map.Update(camera));
+		//controls.addEventListener("change", () => map.RenderDebugLabels(camera, true));
 		map.Update(camera);
 
 		document.addEventListener("keydown", (event) => {
@@ -130,6 +131,18 @@ class Map
 		this.activeNodeStack = requiredNodes;
 	}
 
+	RenderDebugLabels(camera:Camera, render:boolean){
+		const labelContainer = document.querySelector('#labels');
+
+		// remove all existing labels
+		if (labelContainer == null) return;
+		while (labelContainer.firstChild) {
+			labelContainer.removeChild(labelContainer.firstChild);
+		}
+
+		this.tree.nodes.forEach(node => node.RenderText(camera, labelContainer));
+	}
+
 	// Helper function for getting a correct frustum
 	// For whatever reason the camera planes all have
 	// constants of zero when queried
@@ -192,6 +205,7 @@ class QuadTree
 	// Changing this would require rebuilding the tree
 	size : Vector2;
 	root : QuadTreeNode;
+	nodes = new Array<QuadTreeNode>();
 	colorA : Color;
 	colorB : Color;
 	maxSubdivisions : number;
@@ -202,9 +216,9 @@ class QuadTree
 		this.size = size;
 		this.root = new QuadTreeNode(this, null, 0, 0, position);
 
-		this.colorA = new Color("#1f4260");
+		this.colorA = new Color("#1f4260").multiplyScalar(1.4);
 		this.colorB = new Color("#f3ff82");
-		this.maxSubdivisions = 2;
+		this.maxSubdivisions = 5;
 		this.minRatioToSubdivide = .25;
 
 		scene.add(this.rootObject);
@@ -227,17 +241,16 @@ class QuadTree
 
 	GetColorAtLevel(level:number, index:number){
 		let color = this.colorA.clone().lerp(this.colorB, level / this.maxSubdivisions);
-		color.sub(new Color(index / 16, 0, 0));
+		color.sub(new Color(index / 32, 0, 0));
 		return color;
 	}
 
 	GetNodeList(frustum:Frustum){
+		this.nodes = new Array<QuadTreeNode>();
 		
-		let nodes = new Array<QuadTreeNode>();
-		
-		this.root.GetChildrenInRectRecursive(frustum, nodes);
+		this.root.GetChildrenInRectRecursive(frustum, this.nodes);
 
-		return nodes;
+		return this.nodes;
 	}
 }
 
@@ -275,14 +288,12 @@ class QuadTreeNode
 		this.children = new Array(4).fill(null);
 
 		console.log("Node [level:", this.level + ", center:", this.center.x + "," + center.y + "]");
-		console.log(this.cornerA);
-		console.log(this.cornerB);
 	}
 
 	GetAddress(){
 		let indexPath = new Array<string>();
 		let p = this as QuadTreeNode | null;
-		while(p != null){
+		while(p?.parent != null){
 			indexPath.push(p.level + ":" + p.index);
 			p = p.parent;
 		}
@@ -309,14 +320,14 @@ class QuadTreeNode
 					index==0 || index==1 ? -1 : 1);
 
 
-			console.log("Direction:",direction);
-			console.log("OriginalCenter:", this.center);
+			//console.log("Direction:",direction);
+			//console.log("OriginalCenter:", this.center);
 			
 			// center + (offset * direction)
 			let childCenter = this.center.clone().add(childPositionOffset.multiply(direction));
 
 
-			console.log("ChildCenter:",childCenter);
+			//console.log("ChildCenter:",childCenter);
 
 			this.children[index] = new QuadTreeNode(this.context, this, this.level + 1, index, childCenter);
 		}
@@ -376,6 +387,26 @@ class QuadTreeNode
 			let node = this.GetChild(index);
 
 			node.GetChildrenInRectRecursive(frustum, nodeOutput);
+		}
+	}
+
+	RenderText(camera:Camera, container:Element){
+		if (this.mesh){
+			let position = new Vector3();
+			this.mesh.getWorldPosition(position);
+
+			position.project(camera);
+
+			const x = (position.x *  .5 + .5) * window.innerWidth;
+			const y = (position.y * -.5 + .5) * window.innerHeight;
+
+			const label = document.createElement("div");
+			label.textContent = this.GetAddress();
+
+			// move the elem to that position
+			label.style.transform = `translate(-50%, -50%) translate(${x}px,${y}px)`;
+
+			container.appendChild(label);
 		}
 	}
 
