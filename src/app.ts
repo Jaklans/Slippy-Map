@@ -16,7 +16,8 @@ import {
 	Raycaster,
 	Line,
 	Line3,
-	Plane
+	Plane,
+	Object3D
 } from 'three';
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -51,19 +52,20 @@ class App {
 
 		scene = new Scene();
 
-		const geometry = new BoxGeometry();
+		const geometry = new PlaneGeometry(1,1);
 		const material = new MeshBasicMaterial();
-		material.color = new Color("#114477");
+		material.color = new Color("#994477");
 
 		// Base geometry
 		const mesh = new Mesh( geometry, material );
-		mesh.rotateX(Math.PI)
+		//mesh.rotateX(Math.PI)
 		scene.add( mesh );
 
 		map = new Map(scene);
 
-		controls.addEventListener("change", () => map.Update(camera));
-
+		//controls.addEventListener("change", () => map.Update(camera));
+		map.Update(camera);
+		console.log("finished init");
 		animate();
 	}
 }
@@ -122,7 +124,7 @@ class Map
 		});
 
 		requiredNodes.forEach(node => {
-			node.SetToRender(false, this.scene);
+			node.SetToRender(true, this.scene);
 		});
 
 		this.activeNodeStack = requiredNodes;
@@ -183,6 +185,7 @@ class Map
 
 class QuadTree
 {
+	rootObject = new Object3D();
 	// Position of center of tree
 	position : Vector2;
 	// Width and height of the tree at top level
@@ -197,12 +200,14 @@ class QuadTree
 	constructor(position : Vector2, size : Vector2){
 		this.position = position;
 		this.size = size;
-		this.root = new QuadTreeNode(this, null, 0, position);
+		this.root = new QuadTreeNode(this, null, 0, 0, position);
 
 		this.colorA = new Color("#1f4260");
 		this.colorB = new Color("#f3ff82");
-		this.maxSubdivisions = 3;
+		this.maxSubdivisions = 1;
 		this.minRatioToSubdivide = .25;
+
+		scene.add(this.rootObject);
 	}
 
 	// This had to be revised so many times because
@@ -210,7 +215,7 @@ class QuadTree
 	//  B) divideScalar both returns and writes to the underying vec
 	
 	GetSizeAtLevel(level:number){
-		let divisor = Math.pow(2, level + 1)
+		let divisor = Math.pow(2, level)
 		let vec = new Vector2(this.size.x, this.size.y);
 		vec.divideScalar(divisor);
 		return vec;
@@ -220,8 +225,8 @@ class QuadTree
 		return this.GetSizeAtLevel(level+1);
 	}
 
-	GetColorAtLevel(level:number){
-		return this.colorA.lerp(this.colorB, level / this.maxSubdivisions);
+	GetColorAtLevel(level:number, index:number){
+		return this.colorA.clone().lerp(this.colorB, level / this.maxSubdivisions).add(new Color(index / 16, 0, 0));
 	}
 
 	GetNodeList(frustum:Frustum){
@@ -238,8 +243,11 @@ class QuadTreeNode
 {
 	context : QuadTree;
 	level : number;
+	index : number;
 	center : Vector2;
 	bounds : rect;
+	cornerA : Vector3;
+	cornerB : Vector3;
 	active : boolean;
 	parent : QuadTreeNode | null;
 	children : Array<QuadTreeNode | null>;
@@ -247,20 +255,26 @@ class QuadTreeNode
 	// Rendering / SceneGraph
 	mesh : Mesh | null;
 
-	constructor(context:QuadTree, parent : QuadTreeNode | null, level:number, center:Vector2){
+	constructor(context:QuadTree, parent : QuadTreeNode | null, level:number, index:number, center:Vector2){
 		this.context = context;
 		this.parent = parent;
 		this.level = level;
+		this.index = index;
 		this.center = center;
 		this.active = false;
 		this.mesh = null;
 
-		let halfSize = center.clone().add(this.context.GetSizeAtLevel(level).divideScalar(2));
+		let halfSize = this.context.GetHalfSizeAtLevel(level);
 
 		this.bounds = new rect(center.clone().sub(halfSize), center.clone().add(halfSize));
+		this.cornerA = this.AsVec3(this.bounds.min);
+		this.cornerB = this.AsVec3(this.bounds.max);
+
 		this.children = new Array(4).fill(null);
 
 		console.log("Node [level:", this.level + ", center:", this.center.x + "," + center.y + "]");
+		console.log(this.cornerA);
+		console.log(this.cornerB);
 	}
 	
 	GetChild(index:number) : QuadTreeNode {
@@ -283,7 +297,7 @@ class QuadTreeNode
 
 
 			console.log("Direction:",direction);
-			console.log("OrigionalCenter:", this.center);
+			console.log("OriginalCenter:", this.center);
 			
 			// center + (offset * direction)
 			let childCenter = this.center.clone().add(childPositionOffset.multiply(direction));
@@ -291,7 +305,7 @@ class QuadTreeNode
 
 			console.log("ChildCenter:",childCenter);
 
-			this.children[index] = new QuadTreeNode(this.context, this, this.level + 1, childCenter);
+			this.children[index] = new QuadTreeNode(this.context, this, this.level + 1, index, childCenter);
 		}
 
 		return this.children[index] as QuadTreeNode;
@@ -326,6 +340,9 @@ class QuadTreeNode
 
 		let frustumWidth = distanceToLeft1 + distanceToRight1;
 
+		console.log("frustumWidth:",frustumWidth);
+		console.log("tileWidth:",frustumWidth - distanceToLeft2 - distanceToRight1);
+
 		let horizontalRatio = (frustumWidth - distanceToLeft2 - distanceToRight1) / frustumWidth;
 
 		console.log("Ratio @ L"+this.level+":", horizontalRatio);
@@ -354,26 +371,32 @@ class QuadTreeNode
 				const size = this.context.GetSizeAtLevel(this.level);
 				const geometry = new PlaneGeometry(size.x, size.y);
 				const material = new MeshBasicMaterial();
-				material.color = this.context.GetColorAtLevel(this.level);
+				material.color = this.context.GetColorAtLevel(this.level, this.index);
 				this.mesh = new Mesh(geometry, material);
-				//this.mesh.parent = this.parent ? this.parent.mesh : null;
 				this.mesh.position.set(this.center.x, this.center.y, 0);
 
 				// Done to demonstrate that only required nodes are considered for rendering
 				this.mesh.frustumCulled = false;
+
+				// Address Z fighting by manually setting render order.
+				// Plausably not scalable in a more complex system
+				this.mesh.renderOrder = this.level;
 				
 				// TODO: Add text displaying level and which index this is
 				console.log("Alocating mesh for level", this.level);
+				let vec = new Vector3();
+				console.log("Position:", this.mesh.getWorldPosition(vec), "Size:", size.x, size.y)
 			}
 		}
 
 		if (render != this.active){
 			if (render){
-				scene.add(this.mesh as Mesh);
+				console.log("Adding to root (level", this.level + ")");
+				this.context.rootObject.add(this.mesh as Mesh);
 				this.active = true;
 			}
 			else{
-				scene.remove(this.mesh as Mesh);
+				this.context.rootObject.remove(this.mesh as Mesh);
 				this.active = false;
 			}
 		}
