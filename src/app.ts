@@ -46,9 +46,8 @@ class App {
 		controls.minPolarAngle = Math.PI / 4;
 		controls.maxPolarAngle = Math.PI * 3 / 4;
 
-		controls.minAzimuthAngle = -.1 * Math.PI;
-		controls.maxAzimuthAngle =  .1 * Math.PI;
-
+		//controls.minAzimuthAngle = -.1 * Math.PI;
+		//controls.maxAzimuthAngle =  .1 * Math.PI;
 
 		scene = new Scene();
 
@@ -108,6 +107,11 @@ class Map
 
 		let frustum = new Frustum().setFromProjectionMatrix(camera.projectionMatrix);
 
+		this.CalculateFrustumPlane(frustum.planes[0], camera.position)
+		this.CalculateFrustumPlane(frustum.planes[1], camera.position)
+
+		console.log(frustum);
+
 		// Get all nodes that must be rendered with given frustum
 		let requiredNodes = this.tree.GetNodeList(frustum);
 
@@ -122,6 +126,16 @@ class Map
 		});
 
 		this.activeNodeStack = requiredNodes;
+	}
+
+	// Helper function for getting a correct frustum
+	// For whatever reason the camera planes all have
+	// constants of zero when queried
+	// This function will only work for perspective cameras,
+	// where the cameras position is on the horizontal and 
+	// vertical frustum planes
+	CalculateFrustumPlane(p:Plane, cameraPosition:Vector3){
+		p.constant = cameraPosition.dot(p.normal);
 	}
 
 	/* I considered refactoring this to calculate the frustum edges and find the 
@@ -196,16 +210,9 @@ class QuadTree
 	//  B) divideScalar both returns and writes to the underying vec
 	
 	GetSizeAtLevel(level:number){
-		console.log("level:", level);
-
 		let divisor = Math.pow(2, level + 1)
-
 		let vec = new Vector2(this.size.x, this.size.y);
-
 		vec.divideScalar(divisor);
-
-		console.log(vec);
-
 		return vec;
 	}
 
@@ -221,10 +228,8 @@ class QuadTree
 		
 		let nodes = new Array<QuadTreeNode>();
 		
-		console.log("getting nodes");
 		this.root.GetChildrenInRectRecursive(frustum, nodes);
 
-		console.log("finished getting nodes");
 		return nodes;
 	}
 }
@@ -250,18 +255,17 @@ class QuadTreeNode
 		this.active = false;
 		this.mesh = null;
 
-		let halfSize = center.add(this.context.GetSizeAtLevel(level).divideScalar(2));
+		let halfSize = center.clone().add(this.context.GetSizeAtLevel(level).divideScalar(2));
 
-		this.bounds = new rect(center.sub(halfSize), center.add(halfSize));
+		this.bounds = new rect(center.clone().sub(halfSize), center.clone().add(halfSize));
 		this.children = new Array(4).fill(null);
 
-		console.log("Node [level:", this.level + ", center:", this.center.x + "," + this.center.y + "]");
+		console.log("Node [level:", this.level + ", center:", this.center.x + "," + center.y + "]");
 	}
 	
 	GetChild(index:number) : QuadTreeNode {
 		if (!this.children[index]){
-			let childSize = this.context.GetSizeAtLevel(this.level+1);
-			let childPositionOffset = childSize;
+			let childPositionOffset = this.context.GetHalfSizeAtLevel(this.level+1);
 
 			// Quadrant indexes are as follows:
 			//  ---------
@@ -276,9 +280,16 @@ class QuadTreeNode
 				new Vector2(
 					index==0 || index==2 ? -1 : 1, 
 					index==0 || index==1 ? -1 : 1);
+
+
+			console.log("Direction:",direction);
+			console.log("OrigionalCenter:", this.center);
 			
 			// center + (offset * direction)
-			let childCenter = this.center.add(childPositionOffset.multiply(direction));
+			let childCenter = this.center.clone().add(childPositionOffset.multiply(direction));
+
+
+			console.log("ChildCenter:",childCenter);
 
 			this.children[index] = new QuadTreeNode(this.context, this, this.level + 1, childCenter);
 		}
@@ -290,24 +301,34 @@ class QuadTreeNode
 
 	GetChildrenInRectRecursive(frustum:Frustum, nodeOutput:Array<QuadTreeNode>){
 		
+		console.log("left", frustum.planes[0]);
+		console.log("right", frustum.planes[1]);
+
 		// Planes are, in order, {left, right, top, bottom, near, far}
 		let distanceToLeft1 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.max));
 		let distanceToLeft2 = frustum.planes[0].distanceToPoint(this.AsVec3(this.bounds.min));
 		let distanceToRight1 = frustum.planes[1].distanceToPoint(this.AsVec3(this.bounds.max));
 
+
+		console.log("dl1:",distanceToLeft1);
+		console.log("dl2:",distanceToLeft2);
+		console.log("dr1:",distanceToRight1);
+
 		// Checks to make sure that some of the rect is in the frustum
 		if (distanceToLeft2 > 0 || distanceToRight1 > 0) {
-			return;
+			//return;
 		}
 
 		// TODO: this may lead to unexpected behavior for tiles that border the frustum
 		distanceToLeft1 = Math.abs(distanceToLeft1);
-		distanceToLeft2 = Math.abs(distanceToLeft1);
-		distanceToRight1 = Math.abs(distanceToLeft1);
+		distanceToLeft2 = Math.abs(distanceToLeft2);
+		distanceToRight1 = Math.abs(distanceToRight1);
 
 		let frustumWidth = distanceToLeft1 + distanceToRight1;
 
 		let horizontalRatio = (frustumWidth - distanceToLeft2 - distanceToRight1) / frustumWidth;
+
+		console.log("Ratio @ L"+this.level+":", horizontalRatio);
 
 		if (horizontalRatio < this.context.minRatioToSubdivide){
 			return;
@@ -335,7 +356,7 @@ class QuadTreeNode
 				const material = new MeshBasicMaterial();
 				material.color = this.context.GetColorAtLevel(this.level);
 				this.mesh = new Mesh(geometry, material);
-				this.mesh.parent = this.parent ? this.parent.mesh : null;
+				//this.mesh.parent = this.parent ? this.parent.mesh : null;
 				this.mesh.position.set(this.center.x, this.center.y, 0);
 
 				// Done to demonstrate that only required nodes are considered for rendering
@@ -345,7 +366,6 @@ class QuadTreeNode
 				console.log("Alocating mesh for level", this.level);
 			}
 		}
-		return;
 
 		if (render != this.active){
 			if (render){
