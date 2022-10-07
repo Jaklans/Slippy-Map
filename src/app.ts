@@ -187,16 +187,30 @@ class QuadTree
 
 		this.colorA = new Color("#1f4260");
 		this.colorB = new Color("#f3ff82");
-		this.maxSubdivisions = 10;
+		this.maxSubdivisions = 3;
 		this.minRatioToSubdivide = .25;
 	}
 
+	// This had to be revised so many times because
+	//  A) ^ is not pow, it is a binary op
+	//  B) divideScalar both returns and writes to the underying vec
+	
 	GetSizeAtLevel(level:number){
-		return this.size.divideScalar(2^(level+1));
+		console.log("level:", level);
+
+		let divisor = Math.pow(2, level + 1)
+
+		let vec = new Vector2(this.size.x, this.size.y);
+
+		vec.divideScalar(divisor);
+
+		console.log(vec);
+
+		return vec;
 	}
 
 	GetHalfSizeAtLevel(level:number){
-		return this.size.divideScalar(2^(level+2));
+		return this.GetSizeAtLevel(level+1);
 	}
 
 	GetColorAtLevel(level:number){
@@ -206,9 +220,11 @@ class QuadTree
 	GetNodeList(frustum:Frustum){
 		
 		let nodes = new Array<QuadTreeNode>();
-
+		
+		console.log("getting nodes");
 		this.root.GetChildrenInRectRecursive(frustum, nodes);
 
+		console.log("finished getting nodes");
 		return nodes;
 	}
 }
@@ -238,6 +254,8 @@ class QuadTreeNode
 
 		this.bounds = new rect(center.sub(halfSize), center.add(halfSize));
 		this.children = new Array(4).fill(null);
+
+		console.log("Node [level:", this.level + ", center:", this.center.x + "," + this.center.y + "]");
 	}
 	
 	GetChild(index:number) : QuadTreeNode {
@@ -309,6 +327,7 @@ class QuadTreeNode
 	}
 
 	SetToRender(render:boolean, scene : Scene){
+		
 		if (!this.mesh){
 			if (render){
 				const size = this.context.GetSizeAtLevel(this.level);
@@ -321,10 +340,12 @@ class QuadTreeNode
 
 				// Done to demonstrate that only required nodes are considered for rendering
 				this.mesh.frustumCulled = false;
-
+				
 				// TODO: Add text displaying level and which index this is
+				console.log("Alocating mesh for level", this.level);
 			}
 		}
+		return;
 
 		if (render != this.active){
 			if (render){
