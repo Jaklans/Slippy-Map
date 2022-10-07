@@ -22,6 +22,8 @@ import {
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+let debugLogMessages = false;
+
 // Should be moved to the app class
 let camera:PerspectiveCamera, scene:Scene, renderer:WebGLRenderer, controls:OrbitControls, map:Map;
 
@@ -59,14 +61,14 @@ class App {
 		map.Update(camera);
 
 		document.addEventListener("keydown", (event) => {
-			console.log("key event", event);
+			if (debugLogMessages) console.log("key event", event);
 			if (event.key == "r"){
-				console.log("manually updating map");
+				if (debugLogMessages) console.log("manually updating map");
 				map.Update(camera)
 			}
 		} );
 
-		console.log("finished init");
+		if (debugLogMessages) console.log("finished init");
 		animate();
 	}
 }
@@ -168,7 +170,7 @@ class Map
 			var min = new Vector2(minHits[0].point.x, minHits[0].point.y);
 		}
 		else{
-			console.log()
+			if (debugLogMessages) console.log()
 			var min = this.tree.position.sub(this.tree.size.divideScalar(2));
 		}
 
@@ -179,9 +181,9 @@ class Map
 			var max = this.tree.position.add(this.tree.size.divideScalar(2));
 		}
 
-		console.log(min);
+		if (debugLogMessages) console.log(min);
 
-		console.log(max);
+		if (debugLogMessages) console.log(max);
 
 		return new rect(min, max);
 	}*/
@@ -209,7 +211,7 @@ class QuadTree
 
 		this.colorA = new Color("#1f4260").multiplyScalar(1.4);
 		this.colorB = new Color("#f3ff82");
-		this.maxSubdivisions = 5;
+		this.maxSubdivisions = 10;
 		this.minRatioToSubdivide = .25;
 
 		scene.add(this.rootObject);
@@ -276,7 +278,7 @@ class QuadTreeNode
 
 		this.children = new Array(4).fill(null);
 
-		console.log("Node [level:", this.level + ", center:", this.center.x + "," + center.y + "]");
+		if (debugLogMessages) console.log("Node [level:", this.level + ", center:", this.center.x + "," + center.y + "]");
 	}
 
 	GetAddress(){
@@ -309,14 +311,14 @@ class QuadTreeNode
 					index==0 || index==1 ? -1 : 1);
 
 
-			//console.log("Direction:",direction);
-			//console.log("OriginalCenter:", this.center);
+			//if (debugLogMessages) console.log("Direction:",direction);
+			//if (debugLogMessages) console.log("OriginalCenter:", this.center);
 			
 			// center + (offset * direction)
 			let childCenter = this.center.clone().add(childPositionOffset.multiply(direction));
 
 
-			//console.log("ChildCenter:",childCenter);
+			//if (debugLogMessages) console.log("ChildCenter:",childCenter);
 
 			this.children[index] = new QuadTreeNode(this.context, this, this.level + 1, index, childCenter);
 		}
@@ -331,9 +333,15 @@ class QuadTreeNode
 		let screenSpaceA = this.cornerA.clone().project(camera);
 		let screenSpaceB = this.cornerB.clone().project(camera);
 
+		if (debugLogMessages) console.log(screenSpaceA);
+		if (debugLogMessages) console.log(screenSpaceB);
+
+		if (debugLogMessages) console.log((screenSpaceA.x + 1));
+		if (debugLogMessages) console.log((screenSpaceA.y - 1));
+
 		let area = screenSpaceA.sub(screenSpaceB).length();
 
-		console.log(this.GetAddress() + " Area: " + area);
+		if (debugLogMessages) console.log(this.GetAddress() + " Area: " + area);
 
 		if (area < this.context.minRatioToSubdivide){
 			return;
@@ -394,15 +402,15 @@ class QuadTreeNode
 				//this.mesh.renderOrder = this.level;
 				
 				// TODO: Add text displaying level and which index this is
-				console.log("Alocating mesh for level", this.level);
+				if (debugLogMessages) console.log("Alocating mesh for level", this.level);
 				let vec = new Vector3();
-				console.log("Position:", this.mesh.getWorldPosition(vec), "Size:", size.x, size.y)
+				if (debugLogMessages) console.log("Position:", this.mesh.getWorldPosition(vec), "Size:", size.x, size.y)
 			}
 		}
 
 		if (render != this.active){
 			if (render){
-				console.log("Adding to root (level", this.level + ")");
+				if (debugLogMessages) console.log("Adding to root (level", this.level + ")");
 				this.context.rootObject.add(this.mesh as Mesh);
 				this.active = true;
 			}
