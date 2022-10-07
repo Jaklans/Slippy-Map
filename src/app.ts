@@ -39,7 +39,7 @@ class App {
 		window.addEventListener( 'resize', onWindowResize, false );
 
 		// Camera
-		camera = new PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 10 );
+		camera = new PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100 );
 		//camera = new OrthographicCamera(-1,1,-1,1,.1,10);
 		camera.position.z = 4;
 
@@ -47,19 +47,10 @@ class App {
 		controls.minPolarAngle = Math.PI / 4;
 		controls.maxPolarAngle = Math.PI * 3 / 4;
 
-		//controls.minAzimuthAngle = -.1 * Math.PI;
-		//controls.maxAzimuthAngle =  .1 * Math.PI;
+		controls.minAzimuthAngle = -.1 * Math.PI;
+		controls.maxAzimuthAngle =  .1 * Math.PI;
 
 		scene = new Scene();
-
-		const geometry = new PlaneGeometry(1,1);
-		const material = new MeshBasicMaterial();
-		material.color = new Color("#994477");
-
-		// Base geometry
-		const mesh = new Mesh( geometry, material );
-		//mesh.rotateX(Math.PI)
-		scene.add( mesh );
 
 		map = new Map(scene);
 
@@ -226,7 +217,9 @@ class QuadTree
 	}
 
 	GetColorAtLevel(level:number, index:number){
-		return this.colorA.clone().lerp(this.colorB, level / this.maxSubdivisions).add(new Color(index / 16, 0, 0));
+		let color = this.colorA.clone().lerp(this.colorB, level / this.maxSubdivisions);
+		color.sub(new Color(index / 16, 0, 0));
+		return color;
 	}
 
 	GetNodeList(frustum:Frustum){
@@ -373,14 +366,17 @@ class QuadTreeNode
 				const material = new MeshBasicMaterial();
 				material.color = this.context.GetColorAtLevel(this.level, this.index);
 				this.mesh = new Mesh(geometry, material);
-				this.mesh.position.set(this.center.x, this.center.y, 0);
+				this.mesh.position.set(this.center.x, this.center.y, .01 * this.level);
 
 				// Done to demonstrate that only required nodes are considered for rendering
 				this.mesh.frustumCulled = false;
 
 				// Address Z fighting by manually setting render order.
 				// Plausably not scalable in a more complex system
-				this.mesh.renderOrder = this.level;
+
+				// This does not seem to work for opaques,
+				// so is instead adressed by z offset
+				//this.mesh.renderOrder = this.level;
 				
 				// TODO: Add text displaying level and which index this is
 				console.log("Alocating mesh for level", this.level);
